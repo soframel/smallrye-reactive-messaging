@@ -118,7 +118,7 @@ When the amount of credits reaches 0, it waits (in a non-blocking fashion) until
 
 When `max-inflight-messages` is set to 0, only AMQP credits apply to limit the requests.
 
-Note that if an AMQP message send fails, it is retried until `reconnect-attempts` is reached.
+Note that if an AMQP message send fails, it is retried until `retry-on-fail-attempts` is reached.
 If the client reconnects to the broker during the retry, failing messages are sent again but the message order is not preserved.
 
 To preserve the message order in this case you can set `max-inflight-messages` to
