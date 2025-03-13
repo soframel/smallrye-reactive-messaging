@@ -10,15 +10,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.qpid.proton.amqp.Binary;
 import org.apache.qpid.proton.amqp.Symbol;
-import org.apache.qpid.proton.amqp.messaging.Accepted;
-import org.apache.qpid.proton.amqp.messaging.AmqpValue;
-import org.apache.qpid.proton.amqp.messaging.Data;
-import org.apache.qpid.proton.amqp.messaging.Section;
+import org.apache.qpid.proton.amqp.messaging.*;
 import org.apache.qpid.proton.amqp.transport.Target;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.reactive.messaging.Message;
@@ -222,6 +220,41 @@ public class AmqpSinkTest extends AmqpTestBase {
                     delivery.disposition(Accepted.getInstance(), true);
                     messages.add(message);
 
+                    latch.countDown();
+                });
+
+                serverReceiver.open();
+            });
+        });
+    }
+
+    private MockServer setupMockServerForTypeTestAcceptOnlyOneMessage(List<org.apache.qpid.proton.message.Message> messages,
+            CountDownLatch latch,
+            AtomicReference<String> attachAddress) throws Exception {
+        return new MockServer(executionHolder.vertx().getDelegate(), serverConnection -> {
+            serverConnection.openHandler(serverSender -> {
+                serverConnection.closeHandler(x -> serverConnection.close());
+                serverConnection.open();
+            });
+
+            serverConnection.sessionOpenHandler(serverSession -> {
+                serverSession.closeHandler(x -> serverSession.close());
+                serverSession.open();
+            });
+
+            serverConnection.receiverOpenHandler(serverReceiver -> {
+                Target remoteTarget = serverReceiver.getRemoteTarget();
+                attachAddress.set(remoteTarget.getAddress());
+                serverReceiver.setTarget(remoteTarget.copy());
+
+                AtomicBoolean noMessageYet = new AtomicBoolean(true);
+                serverReceiver.handler((delivery, message) -> {
+                    if (noMessageYet.compareAndSet(true, false)) {
+                        delivery.disposition(Accepted.getInstance(), true);
+                        messages.add(message);
+                    } else {
+                        delivery.disposition(new Rejected(), true);
+                    }
                     latch.countDown();
                 });
 
@@ -1291,6 +1324,39 @@ public class AmqpSinkTest extends AmqpTestBase {
         assertThat(count.get()).isEqualTo(msgCount);
     }
 
+    @Test
+    @Timeout(30)
+    public void testSinkMessageNackedNoRetryOnFailure() throws Exception {
+        int msgCount = 10;
+        CountDownLatch msgsReceived = new CountDownLatch(msgCount);
+        List<org.apache.qpid.proton.message.Message> messagesReceived = Collections
+                .synchronizedList(new ArrayList<>(msgCount));
+
+        server = setupMockServerForTypeTestAcceptOnlyOneMessage(messagesReceived, msgsReceived, new AtomicReference<String>());
+
+        Flow.Subscriber<? extends Message<?>> sink = createProviderAndSinkRetryOnFailure(UUID.randomUUID().toString(),
+                server.actualPort());
+
+        //noinspection unchecked
+        Multi.createFrom().range(0, 10)
+                .map(v -> AmqpMessage.<String> builder()
+                        .withBody(HELLO + v)
+                        .withSubject("to nack")
+                        .build())
+                .subscribe((Flow.Subscriber<? super Message<?>>) sink);
+
+        assertThat(msgsReceived.await(6, TimeUnit.SECONDS)).isTrue();
+        assertThat(messagesReceived.size()).isEqualTo(1);
+
+        org.apache.qpid.proton.message.Message msg = messagesReceived.get(0);
+        assertThat(msg.getContentType()).isNull();
+        assertThat(msg.getSubject()).isEqualTo("to nack");
+        Section body = msg.getBody();
+        assertThat(body).isInstanceOf(AmqpValue.class);
+        Object payload = ((AmqpValue) body).getValue();
+        assertThat(HELLO + "0").isEqualTo(payload);
+    }
+
     private Flow.Subscriber<? extends Message<?>> getSubscriberBuilder(Map<String, Object> config) {
         this.provider = new AmqpConnector();
         provider.setup(executionHolder);
@@ -1319,6 +1385,15 @@ public class AmqpSinkTest extends AmqpTestBase {
         Map<String, Object> config = createBaseConfig(topic, port);
         config.put("address", topic);
         config.put("max-inflight-messages", 100L);
+
+        return getSubscriberBuilder(config);
+    }
+
+    private Flow.Subscriber<? extends Message<?>> createProviderAndSinkRetryOnFailure(String topic, int port) {
+        Map<String, Object> config = createBaseConfig(topic, port);
+        config.put("address", topic);
+        config.put("retry-on-fail-attempts", 0);
+        config.put("retry-on-fail-interval", 1);
 
         return getSubscriberBuilder(config);
     }
