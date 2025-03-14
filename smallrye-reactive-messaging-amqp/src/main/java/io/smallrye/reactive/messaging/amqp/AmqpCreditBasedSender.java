@@ -4,6 +4,7 @@ import static io.smallrye.reactive.messaging.amqp.i18n.AMQPExceptions.ex;
 import static io.smallrye.reactive.messaging.amqp.i18n.AMQPLogging.log;
 import static java.time.Duration.ofSeconds;
 
+import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow.Processor;
@@ -24,6 +25,7 @@ import io.smallrye.mutiny.tuples.Tuple3;
 import io.smallrye.reactive.messaging.amqp.ce.AmqpCloudEventHelper;
 import io.smallrye.reactive.messaging.amqp.tracing.AmqpOpenTelemetryInstrumenter;
 import io.smallrye.reactive.messaging.ce.OutgoingCloudEventMetadata;
+import io.smallrye.reactive.messaging.health.HealthReport;
 import io.vertx.amqp.impl.AmqpMessageImpl;
 import io.vertx.mutiny.amqp.AmqpSender;
 
@@ -130,6 +132,24 @@ public class AmqpCreditBasedSender implements Processor<Message<?>, Message<?>>,
                     }
                     return Uni.createFrom().item(ok);
                 });
+    }
+
+    public HealthReport.HealthReportBuilder isReady(String channel, HealthReport.HealthReportBuilder builder) {
+        if (!configuration.getHealthEnabled() || !configuration.getHealthReadinessEnabled()) {
+            return builder;
+        }
+
+        return computeHealthReport(channel, builder);
+    }
+
+    private HealthReport.HealthReportBuilder computeHealthReport(String channel, HealthReport.HealthReportBuilder builder) {
+        try {
+            builder.add(channel, this.isConnected().await()
+                    .atMost(Duration.ofSeconds(this.getHealthTimeout())));
+        } catch (Exception e) {
+            builder.add(channel, false, e.getMessage());
+        }
+        return builder;
     }
 
     @Override
