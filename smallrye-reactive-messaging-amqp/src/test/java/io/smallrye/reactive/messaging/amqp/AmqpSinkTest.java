@@ -1332,17 +1332,19 @@ public class AmqpSinkTest extends AmqpTestBase {
     @Test
     @Timeout(30)
     public void testSinkMessageRejectedRetryOnFail() throws Exception {
-        //latch 4 times for 3 messages + 1 retry
-        int msgCount = 4;
-        CountDownLatch msgsReceived = new CountDownLatch(msgCount);
+        //latch 6 times for 3 messages + 3 retries
+        CountDownLatch msgsReceived = new CountDownLatch(6);
         List<org.apache.qpid.proton.message.Message> messagesReceived = Collections
-                .synchronizedList(new ArrayList<>(msgCount));
+                .synchronizedList(new ArrayList<>(1));
 
         server = setupMockServerForTypeTestAcceptOnlySomeMessagesAfterRetry(messagesReceived, msgsReceived,
                 new AtomicReference<String>());
 
         Flow.Subscriber<? extends Message<?>> sink = createProviderAndSinkRetryOnFail(UUID.randomUUID().toString(),
                 server.actualPort());
+
+        //check duration of test to check retry-on-fail-interval property
+        long before = System.currentTimeMillis();
 
         //noinspection unchecked
         AtomicBoolean firstMessage = new AtomicBoolean(true);
@@ -1363,6 +1365,11 @@ public class AmqpSinkTest extends AmqpTestBase {
                 .subscribe((Flow.Subscriber<? super Message<?>>) sink);
 
         assertThat(msgsReceived.await(10, TimeUnit.SECONDS)).isTrue();
+        //time spent must be > 1s because there was at least one retry of 1s and <4s in case TO_REJECT messages were retried before the OK message (+ some margin for the test)
+        long duration = System.currentTimeMillis() - before;
+        assertThat(duration).isGreaterThan(1000);
+        assertThat(duration).isLessThan(4000);
+
         assertThat(messagesReceived.size()).isEqualTo(1);
 
         org.apache.qpid.proton.message.Message msg = messagesReceived.get(0);
@@ -1406,7 +1413,7 @@ public class AmqpSinkTest extends AmqpTestBase {
         Map<String, Object> config = createBaseConfig(topic, port);
         config.put("address", topic);
         config.put("retry-on-fail-attempts", 1);
-        config.put("retry-on-fail-interval", 0);
+        config.put("retry-on-fail-interval", 1);
 
         return getSubscriberBuilder(config);
     }
