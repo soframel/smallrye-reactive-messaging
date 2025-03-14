@@ -242,8 +242,8 @@ public class AmqpConnector implements InboundConnector, OutboundConnector, Healt
                 .onItem().transformToMulti(r -> getStreamOfMessages(r, holder, address, channel, onNack,
                         cloudEvents, tracing));
 
-        Integer interval = oc.getRetryOnFailAttempts();
-        Integer attempts = oc.getRetryOnFailInterval();
+        Integer interval = oc.getRetryOnFailInterval();
+        Integer attempts = oc.getRetryOnFailAttempts();
         multi = multi
                 // Retry on failure.
                 .onFailure().invoke(log::retrieveMessagesRetrying)
