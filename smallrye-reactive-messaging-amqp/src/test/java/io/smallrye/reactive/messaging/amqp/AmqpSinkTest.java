@@ -1364,7 +1364,7 @@ public class AmqpSinkTest extends AmqpTestBase {
                 })
                 .subscribe((Flow.Subscriber<? super Message<?>>) sink);
 
-        assertThat(msgsReceived.await(10, TimeUnit.SECONDS)).isTrue();
+        assertThat(msgsReceived.await(4, TimeUnit.SECONDS)).isTrue();
         //time spent must be > 1s because there was at least one retry of 1s and <4s in case TO_REJECT messages were retried before the OK message (+ some margin for the test)
         long duration = System.currentTimeMillis() - before;
         assertThat(duration).isGreaterThan(1000);
