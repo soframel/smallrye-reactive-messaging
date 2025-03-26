@@ -82,7 +82,7 @@
     <micrometer.version>1.14.5</micrometer.version>
 
     <mutiny.version>2.8.0</mutiny.version>
-    <artemis.version>2.39.0</artemis.version>
+    <artemis.version>2.40.0</artemis.version>
     <commons-io.version>2.18.0</commons-io.version>
 
     <jboss-log-manager.version>3.1.2.Final</jboss-log-manager.version>
@@ -99,7 +99,7 @@
     <testcontainers.version>1.20.6</testcontainers.version>
 
     <sonar.coverage.jacoco.xmlReportPaths>${project.basedir}/target/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
-    <mockito.version>5.16.0</mockito.version>
+    <mockito.version>5.16.1</mockito.version>
     <junit-pioneer.version>2.3.0</junit-pioneer.version>
     <junit-platform-commons.version>1.9.3</junit-platform-commons.version>
     <system-stubs-jupiter.version>2.1.7</system-stubs-jupiter.version>
