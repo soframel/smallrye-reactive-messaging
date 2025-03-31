@@ -4,6 +4,7 @@ import static io.smallrye.reactive.messaging.amqp.i18n.AMQPExceptions.ex;
 import static io.smallrye.reactive.messaging.amqp.i18n.AMQPLogging.log;
 import static java.time.Duration.ofSeconds;
 
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletionStage;
@@ -15,6 +16,7 @@ import org.apache.qpid.proton.amqp.Symbol;
 
 import io.smallrye.common.annotation.CheckReturnValue;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.reactive.messaging.health.HealthReport;
 import io.smallrye.reactive.messaging.providers.helpers.VertxContext;
 import io.vertx.amqp.impl.AmqpConnectionImpl;
 import io.vertx.mutiny.amqp.AmqpClient;
@@ -64,6 +66,24 @@ public class ConnectionHolder {
 
         return Uni.createFrom().item(() -> !underlying.isDisconnected())
                 .runSubscriptionOn(connection.context::runOnContext);
+    }
+
+    public HealthReport.HealthReportBuilder isReady(String channel, HealthReport.HealthReportBuilder builder) {
+        if (!configuration.getHealthEnabled() || !configuration.getHealthReadinessEnabled()) {
+            return builder;
+        }
+
+        return computeHealthReport(channel, builder);
+    }
+
+    private HealthReport.HealthReportBuilder computeHealthReport(String channel, HealthReport.HealthReportBuilder builder) {
+        try {
+            builder.add(channel, this.isConnected().await()
+                    .atMost(Duration.ofSeconds(this.getHealthTimeout())));
+        } catch (Exception e) {
+            builder.add(channel, false, e.getMessage());
+        }
+        return builder;
     }
 
     /**

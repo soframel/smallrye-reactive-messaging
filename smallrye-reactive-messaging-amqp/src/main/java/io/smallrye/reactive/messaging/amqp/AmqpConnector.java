@@ -7,7 +7,6 @@ import static io.smallrye.reactive.messaging.annotations.ConnectorAttribute.Dire
 import static io.smallrye.reactive.messaging.annotations.ConnectorAttribute.Direction.OUTGOING;
 import static java.time.Duration.ofSeconds;
 
-import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -28,6 +27,7 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.config.Config;
+import org.eclipse.microprofile.config.spi.ConfigProviderResolver;
 import org.eclipse.microprofile.reactive.messaging.Message;
 import org.eclipse.microprofile.reactive.messaging.spi.Connector;
 
@@ -85,6 +85,11 @@ import io.vertx.proton.ProtonSender;
 @ConnectorAttribute(name = "health-timeout", direction = INCOMING_AND_OUTGOING, description = "The max number of seconds to wait to determine if the connection with the broker is still established for the readiness check. After that threshold, the check is considered as failed.", type = "int", defaultValue = "3")
 @ConnectorAttribute(name = "cloud-events", type = "boolean", direction = INCOMING_AND_OUTGOING, description = "Enables (default) or disables the Cloud Event support. If enabled on an _incoming_ channel, the connector analyzes the incoming records and try to create Cloud Event metadata. If enabled on an _outgoing_, the connector sends the outgoing messages as Cloud Event if the message includes Cloud Event Metadata.", defaultValue = "true")
 @ConnectorAttribute(name = "capabilities", type = "string", direction = INCOMING_AND_OUTGOING, description = " A comma-separated list of capabilities proposed by the sender or receiver client.")
+
+// Health
+@ConnectorAttribute(name = "health-enabled", type = "boolean", direction = ConnectorAttribute.Direction.INCOMING_AND_OUTGOING, description = "Whether health reporting is enabled (default) or disabled", defaultValue = "true")
+@ConnectorAttribute(name = "health-liveness-enabled", type = "boolean", direction = ConnectorAttribute.Direction.INCOMING_AND_OUTGOING, description = "Whether liveness health reporting is enabled (default) or disabled", defaultValue = "true")
+@ConnectorAttribute(name = "health-readiness-enabled", type = "boolean", direction = ConnectorAttribute.Direction.INCOMING_AND_OUTGOING, description = "Whether readiness health reporting is enabled (default) or disabled", defaultValue = "true")
 
 @ConnectorAttribute(name = "broadcast", direction = INCOMING, description = "Whether the received AMQP messages must be dispatched to multiple _subscribers_", type = "boolean", defaultValue = "false")
 @ConnectorAttribute(name = "durable", direction = INCOMING, description = "Whether AMQP subscription is durable", type = "boolean", defaultValue = "false")
@@ -401,23 +406,16 @@ public class AmqpConnector implements InboundConnector, OutboundConnector, Healt
      */
     @Override
     public HealthReport getReadiness() {
+
         HealthReport.HealthReportBuilder builder = HealthReport.builder();
         for (Map.Entry<String, ConnectionHolder> holder : holders.entrySet()) {
-            try {
-                builder.add(holder.getKey(), holder.getValue().isConnected().await()
-                        .atMost(Duration.ofSeconds(holder.getValue().getHealthTimeout())));
-            } catch (Exception e) {
-                builder.add(holder.getKey(), false, e.getMessage());
-            }
+            String channel = holder.getKey();
+            builder = holder.getValue().isReady(channel, builder);
         }
 
         for (Map.Entry<String, AmqpCreditBasedSender> sender : processors.entrySet()) {
-            try {
-                builder.add(sender.getKey(), sender.getValue().isConnected().await()
-                        .atMost(Duration.ofSeconds(sender.getValue().getHealthTimeout())));
-            } catch (Exception e) {
-                builder.add(sender.getKey(), false, e.getMessage());
-            }
+            String channel = sender.getKey();
+            builder = sender.getValue().isReady(channel, builder);
         }
 
         return builder.build();
@@ -432,6 +430,12 @@ public class AmqpConnector implements InboundConnector, OutboundConnector, Healt
     @Override
     public HealthReport getLiveness() {
         HealthReport.HealthReportBuilder builder = HealthReport.builder();
+        //check config first
+        Config config = ConfigProviderResolver.instance().getConfig();
+        AmqpConnectorCommonConfiguration amqpConfig = new AmqpConnectorCommonConfiguration(config);
+        if (!amqpConfig.getHealthEnabled() || !amqpConfig.getHealthLivenessEnabled()) {
+            return builder.build();
+        }
         for (Map.Entry<String, Boolean> entry : opened.entrySet()) {
             builder.add(entry.getKey(), entry.getValue());
         }
