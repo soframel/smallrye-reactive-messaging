@@ -408,6 +408,13 @@ public class AmqpConnector implements InboundConnector, OutboundConnector, Healt
     public HealthReport getReadiness() {
 
         HealthReport.HealthReportBuilder builder = HealthReport.builder();
+
+        Config config = ConfigProviderResolver.instance().getConfig();
+        AmqpConnectorCommonConfiguration amqpConfig = new AmqpConnectorCommonConfiguration(config);
+        if (!amqpConfig.getHealthEnabled() || !amqpConfig.getHealthReadinessEnabled()) {
+            return builder.build();
+        }
+
         for (Map.Entry<String, ConnectionHolder> holder : holders.entrySet()) {
             String channel = holder.getKey();
             builder = holder.getValue().isReady(channel, builder);
@@ -430,7 +437,7 @@ public class AmqpConnector implements InboundConnector, OutboundConnector, Healt
     @Override
     public HealthReport getLiveness() {
         HealthReport.HealthReportBuilder builder = HealthReport.builder();
-        //check config first
+        //check global config first
         Config config = ConfigProviderResolver.instance().getConfig();
         AmqpConnectorCommonConfiguration amqpConfig = new AmqpConnectorCommonConfiguration(config);
         if (!amqpConfig.getHealthEnabled() || !amqpConfig.getHealthLivenessEnabled()) {

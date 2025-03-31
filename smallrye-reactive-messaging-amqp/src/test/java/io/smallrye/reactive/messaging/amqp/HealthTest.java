@@ -4,6 +4,8 @@ import static io.smallrye.common.constraint.Assert.assertFalse;
 import static org.awaitility.Awaitility.await;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.eclipse.microprofile.config.ConfigProvider;
@@ -31,61 +33,64 @@ public class HealthTest extends AmqpBrokerTestBase {
         SmallRyeConfigProviderResolver.instance().releaseConfig(ConfigProvider.getConfig());
     }
 
-    @Test
-    public void testReadinessAndLivenessEnabledProducer() {
-        String addressSink = UUID.randomUUID().toString();
-
-        new MapBasedConfig()
-                .with("amqp-username", username)
-                .with("amqp-password", password)
-                .with("mp.messaging.outgoing.sink.connector", AmqpConnector.CONNECTOR_NAME)
-                .with("mp.messaging.outgoing.sink.address", addressSink)
-                .with("mp.messaging.outgoing.sink.host", host)
-                .with("mp.messaging.outgoing.sink.port", port)
-                .write();
-
-        weld.addBeanClass(ProducingBean.class);
-        container = weld.initialize();
-
-        await().until(() -> isAmqpConnectorAlive(container));
-        await().until(() -> isAmqpConnectorReady(container));
-    }
-
-    @Test
-    public void testReadinessAndLivenessEnabledConsumer() {
+    public void createProducerConfigAndStart(Optional<Map<String,Object>> additionalConfigs){
         String address = UUID.randomUUID().toString();
 
-        new MapBasedConfig()
-                .with("amqp-username", username)
-                .with("amqp-password", password)
-                .with("mp.messaging.incoming.data.connector", AmqpConnector.CONNECTOR_NAME)
-                .with("mp.messaging.incoming.data.address", address)
-                .with("mp.messaging.incoming.data.host", host)
-                .with("mp.messaging.incoming.data.port", port)
-                .write();
-
-        weld.addBeanClass(ConsumptionBean.class);
-        container = weld.initialize();
-        await().until(() -> isAmqpConnectorAlive(container));
-        await().until(() -> isAmqpConnectorReady(container));
-    }
-
-    @Test
-    public void testHealthDisabledProducer() {
-        String address = UUID.randomUUID().toString();
-
-        new MapBasedConfig()
+        MapBasedConfig config=new MapBasedConfig()
                 .with("amqp-username", username)
                 .with("amqp-password", password)
                 .with("mp.messaging.outgoing.sink.connector", AmqpConnector.CONNECTOR_NAME)
                 .with("mp.messaging.outgoing.sink.address", address)
                 .with("mp.messaging.outgoing.sink.host", host)
                 .with("mp.messaging.outgoing.sink.port", port)
-                .with("health-enabled", false)
-                .write();
+                .with("health-enabled", false);
+        if(additionalConfigs.isPresent()){
+            config.putAll(additionalConfigs.get());
+        }
+        config.write();
 
         weld.addBeanClass(ProducingBean.class);
         container = weld.initialize();
+    }
+
+    public void createConsumerConfigAndStart(Optional<Map<String,Object>> additionalConfigs){
+        String address = UUID.randomUUID().toString();
+
+        MapBasedConfig config=new MapBasedConfig()
+                .with("amqp-username", username)
+                .with("amqp-password", password)
+                .with("mp.messaging.incoming.data.connector", AmqpConnector.CONNECTOR_NAME)
+                .with("mp.messaging.incoming.data.address", address)
+                .with("mp.messaging.incoming.data.host", host)
+                .with("mp.messaging.incoming.data.port", port);
+        if(additionalConfigs.isPresent()){
+            config.putAll(additionalConfigs.get());
+        }
+        config.write();
+
+        weld.addBeanClass(ConsumptionBean.class);
+        container = weld.initialize();
+    }
+
+    @Test
+    public void testReadinessAndLivenessEnabledProducer() {
+
+        this.createProducerConfigAndStart(Optional.empty());
+        await().until(() -> isAmqpConnectorAlive(container));
+        await().until(() -> isAmqpConnectorReady(container));
+    }
+
+    @Test
+    public void testReadinessAndLivenessEnabledConsumer() {
+        this.createConsumerConfigAndStart(Optional.empty());
+        await().until(() -> isAmqpConnectorAlive(container));
+        await().until(() -> isAmqpConnectorReady(container));
+    }
+
+    @Test
+    public void testHealthDisabledProducer() {
+
+        this.createProducerConfigAndStart(Optional.of(Map.of("health-enabled", Boolean.FALSE)));
 
         await().until(() -> isAmqpConnectorAlive(container));
         await().until(() -> isAmqpConnectorReady(container));
@@ -95,30 +100,28 @@ public class HealthTest extends AmqpBrokerTestBase {
         assertFalse(livenessChannels.stream()
                 .map(HealthReport.ChannelInfo::getChannel)
                 .anyMatch(s -> s.contains("sink")));
+
+        List<HealthReport.ChannelInfo> readinessChannels = health.getReadiness().getChannels();
+        assertFalse(readinessChannels.stream()
+                .map(HealthReport.ChannelInfo::getChannel)
+                .anyMatch(s -> s.contains("sink")));
     }
 
     @Test
     public void testHealthDisabledConsumer() {
-        String address = UUID.randomUUID().toString();
+        this.createConsumerConfigAndStart(Optional.of(Map.of("health-enabled", Boolean.FALSE)));
 
-        new MapBasedConfig()
-                .with("amqp-username", username)
-                .with("amqp-password", password)
-                .with("mp.messaging.incoming.data.connector", AmqpConnector.CONNECTOR_NAME)
-                .with("mp.messaging.incoming.data.address", address)
-                .with("mp.messaging.incoming.data.host", host)
-                .with("mp.messaging.incoming.data.port", port)
-                .with("health-enabled", false)
-                .write();
-
-        weld.addBeanClass(ConsumptionBean.class);
-        container = weld.initialize();
         await().until(() -> isAmqpConnectorAlive(container));
         await().until(() -> isAmqpConnectorReady(container));
 
         HealthCenter health = this.getHealthCenter();
         List<HealthReport.ChannelInfo> livenessChannels = health.getLiveness().getChannels();
         assertFalse(livenessChannels.stream()
+                .map(HealthReport.ChannelInfo::getChannel)
+                .anyMatch(s -> s.contains("data")));
+
+        List<HealthReport.ChannelInfo> readinessChannels = health.getReadiness().getChannels();
+        assertFalse(readinessChannels.stream()
                 .map(HealthReport.ChannelInfo::getChannel)
                 .anyMatch(s -> s.contains("data")));
     }
