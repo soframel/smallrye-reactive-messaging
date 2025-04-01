@@ -2,6 +2,7 @@ package io.smallrye.reactive.messaging.amqp;
 
 import static io.smallrye.common.constraint.Assert.assertFalse;
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Map;
@@ -33,10 +34,10 @@ public class HealthTest extends AmqpBrokerTestBase {
         SmallRyeConfigProviderResolver.instance().releaseConfig(ConfigProvider.getConfig());
     }
 
-    public void createProducerConfigAndStart(Optional<Map<String,Object>> additionalConfigs){
+    public void createProducerConfigAndStart(Optional<Map<String, Object>> additionalConfigs) {
         String address = UUID.randomUUID().toString();
 
-        MapBasedConfig config=new MapBasedConfig()
+        MapBasedConfig config = new MapBasedConfig()
                 .with("amqp-username", username)
                 .with("amqp-password", password)
                 .with("mp.messaging.outgoing.sink.connector", AmqpConnector.CONNECTOR_NAME)
@@ -44,7 +45,7 @@ public class HealthTest extends AmqpBrokerTestBase {
                 .with("mp.messaging.outgoing.sink.host", host)
                 .with("mp.messaging.outgoing.sink.port", port)
                 .with("health-enabled", false);
-        if(additionalConfigs.isPresent()){
+        if (additionalConfigs.isPresent()) {
             config.putAll(additionalConfigs.get());
         }
         config.write();
@@ -53,17 +54,17 @@ public class HealthTest extends AmqpBrokerTestBase {
         container = weld.initialize();
     }
 
-    public void createConsumerConfigAndStart(Optional<Map<String,Object>> additionalConfigs){
+    public void createConsumerConfigAndStart(Optional<Map<String, Object>> additionalConfigs) {
         String address = UUID.randomUUID().toString();
 
-        MapBasedConfig config=new MapBasedConfig()
+        MapBasedConfig config = new MapBasedConfig()
                 .with("amqp-username", username)
                 .with("amqp-password", password)
                 .with("mp.messaging.incoming.data.connector", AmqpConnector.CONNECTOR_NAME)
                 .with("mp.messaging.incoming.data.address", address)
                 .with("mp.messaging.incoming.data.host", host)
                 .with("mp.messaging.incoming.data.port", port);
-        if(additionalConfigs.isPresent()){
+        if (additionalConfigs.isPresent()) {
             config.putAll(additionalConfigs.get());
         }
         config.write();
@@ -117,6 +118,90 @@ public class HealthTest extends AmqpBrokerTestBase {
         HealthCenter health = this.getHealthCenter();
         List<HealthReport.ChannelInfo> livenessChannels = health.getLiveness().getChannels();
         assertFalse(livenessChannels.stream()
+                .map(HealthReport.ChannelInfo::getChannel)
+                .anyMatch(s -> s.contains("data")));
+
+        List<HealthReport.ChannelInfo> readinessChannels = health.getReadiness().getChannels();
+        assertFalse(readinessChannels.stream()
+                .map(HealthReport.ChannelInfo::getChannel)
+                .anyMatch(s -> s.contains("data")));
+    }
+
+    @Test
+    public void testHealthLivenessDisabledProducer() {
+
+        this.createProducerConfigAndStart(
+                Optional.of(Map.of("health-liveness-enabled", Boolean.FALSE, "health-enabled", Boolean.TRUE)));
+
+        await().until(() -> isAmqpConnectorAlive(container));
+        await().until(() -> isAmqpConnectorReady(container));
+
+        HealthCenter health = this.getHealthCenter();
+        List<HealthReport.ChannelInfo> livenessChannels = health.getLiveness().getChannels();
+        assertFalse(livenessChannels.stream()
+                .map(HealthReport.ChannelInfo::getChannel)
+                .anyMatch(s -> s.contains("sink")));
+
+        List<HealthReport.ChannelInfo> readinessChannels = health.getReadiness().getChannels();
+        assertTrue(readinessChannels.stream()
+                .map(HealthReport.ChannelInfo::getChannel)
+                .anyMatch(s -> s.contains("sink")));
+    }
+
+    @Test
+    public void testHealthLivenessDisabledConsumer() {
+
+        this.createConsumerConfigAndStart(
+                Optional.of(Map.of("health-liveness-enabled", Boolean.FALSE, "health-enabled", Boolean.TRUE)));
+
+        await().until(() -> isAmqpConnectorAlive(container));
+        await().until(() -> isAmqpConnectorReady(container));
+
+        HealthCenter health = this.getHealthCenter();
+        List<HealthReport.ChannelInfo> livenessChannels = health.getLiveness().getChannels();
+        assertFalse(livenessChannels.stream()
+                .map(HealthReport.ChannelInfo::getChannel)
+                .anyMatch(s -> s.contains("data")));
+
+        List<HealthReport.ChannelInfo> readinessChannels = health.getReadiness().getChannels();
+        assertTrue(readinessChannels.stream()
+                .map(HealthReport.ChannelInfo::getChannel)
+                .anyMatch(s -> s.contains("data")));
+    }
+
+    @Test
+    public void testHealthReadinessDisabledProducer() {
+
+        this.createProducerConfigAndStart(
+                Optional.of(Map.of("health-readiness-enabled", Boolean.FALSE, "health-enabled", Boolean.TRUE)));
+
+        await().until(() -> isAmqpConnectorAlive(container));
+        await().until(() -> isAmqpConnectorReady(container));
+
+        HealthCenter health = this.getHealthCenter();
+        List<HealthReport.ChannelInfo> livenessChannels = health.getLiveness().getChannels();
+        assertTrue(livenessChannels.stream()
+                .map(HealthReport.ChannelInfo::getChannel)
+                .anyMatch(s -> s.contains("sink")));
+
+        List<HealthReport.ChannelInfo> readinessChannels = health.getReadiness().getChannels();
+        assertFalse(readinessChannels.stream()
+                .map(HealthReport.ChannelInfo::getChannel)
+                .anyMatch(s -> s.contains("sink")));
+    }
+
+    @Test
+    public void testHealthReadinessDisabledConsumer() {
+
+        this.createConsumerConfigAndStart(
+                Optional.of(Map.of("health-readiness-enabled", Boolean.FALSE, "health-enabled", Boolean.TRUE)));
+
+        await().until(() -> isAmqpConnectorAlive(container));
+        await().until(() -> isAmqpConnectorReady(container));
+
+        HealthCenter health = this.getHealthCenter();
+        List<HealthReport.ChannelInfo> livenessChannels = health.getLiveness().getChannels();
+        assertTrue(livenessChannels.stream()
                 .map(HealthReport.ChannelInfo::getChannel)
                 .anyMatch(s -> s.contains("data")));
 
