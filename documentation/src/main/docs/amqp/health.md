@@ -21,7 +21,7 @@ re-established.
 
 !!!note
     To disable health reporting, set the `health-enabled` attribute for the
-    channel to `false`.
+    channel to `false`. You can also set `health-liveness-enabled` and `health-readiness-enabled` for more fine-grained control.
 
 Note that a message processing failures *nacks* the message, which is
 then handled by the failure-strategy. It is the responsibility of the
